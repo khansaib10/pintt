@@ -13,8 +13,8 @@ KEYWORDS = [
     "cars"
 ]
 
-FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
-FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
+FB_PAGE_ID = os.environ.get("61574921212526")
+FB_PAGE_TOKEN = os.environ.get("EAAySsQUbT7kBO4QrF6m5m4ZBwAXnTDw70GMuCsZCnhFuZARz6sSVmIXyRZByRQrMRaZCXZAHNglSMymV8qIC6W6e1CtJBfM4M3cnZBB16qj78bYPeGlIZCPhsPVcEPfbNnpZCGl0sP6wwi2xsooHrW11ozlLzwIrYvibU7SWZBcY6ds4juwsvzSOOjVhnW")
 
 # --- Step 1: Get Pinterest Video Links ---
 def search_pinterest_links():
