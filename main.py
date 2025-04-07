@@ -1,82 +1,105 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+import random
+import re
+import json
 
-def search_pinterest_links():
-    keywords = [
-        "luxury cars",
-        "cars lovers",
-        "car drifting",
-        "Harley Davidson",
-        "cars"
-    ]
-    
-    search_results = []
-    for keyword in keywords:
-        search_url = f"https://www.pinterest.com/search/pins/?q={keyword.replace(' ', '%20')}"
-        response = requests.get(search_url, timeout=10)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            pins = soup.find_all('a', href=True)
-            
-            for pin in pins:
-                if '/pin/' in pin['href']:
-                    pin_url = "https://www.pinterest.com" + pin['href']
-                    if pin_url not in search_results:
-                        search_results.append(pin_url)
-                        if len(search_results) >= 5:  # Limit results to avoid spam
-                            return search_results
-    
-    return search_results
+# --- Configuration ---
+KEYWORDS = [
+    "luxury cars",
+    "cars lovers",
+    "car drifting",
+    "Harley Davidson",
+    "cars"
+]
 
-def extract_caption_from_pin(url):
+FB_PAGE_ID = os.getenv("61574921212526")
+FB_PAGE_TOKEN = os.getenv("EAAySsQUbT7kBO4QrF6m5m4ZBwAXnTDw70GMuCsZCnhFuZARz6sSVmIXyRZByRQrMRaZCXZAHNglSMymV8qIC6W6e1CtJBfM4M3cnZBB16qj78bYPeGlIZCPhsPVcEPfbNnpZCGl0sP6wwi2xsooHrW11ozlLzwIrYvibU7SWZBcY6ds4juwsvzSOOjVhnW")
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
+
+# --- Step 1: Search Pinterest ---
+def search_pinterest(keyword):
+    query = keyword.replace(" ", "%20")
+    url = f"https://www.pinterest.com/search/pins/?q={query}"
+    print(f"Searching Pinterest for: {keyword}")
+    response = requests.get(url, headers=HEADERS)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    pins = re.findall(r'"(https://www\.pinterest\.com/pin/\d+/)"', response.text)
+    return list(set(pins))  # unique pin links
+
+# --- Step 2: Extract Video URL & Caption ---
+def extract_video_info(pin_url):
+    print(f"Trying: {pin_url}")
     try:
-        html = requests.get(url, timeout=10).text
+        html = requests.get(pin_url, headers=HEADERS).text
         soup = BeautifulSoup(html, 'html.parser')
-        title = soup.find('meta', property='og:description')
-        caption = title['content'] if title else "🔥 Awesome Bike Reel!"
-        return caption
-    except Exception as e:
-        print("Error extracting caption:", e)
-        return "🔥 Awesome Bike Reel!"
 
-def download_video(url):
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            with open("video.mp4", "wb") as file:
-                file.write(response.content)
-            return "video.mp4"
+        # Extract video URL
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if 'video_list' in script.text:
+                match = re.search(r'"video_list":\{.*?"url":"(.*?)"', script.text)
+                if match:
+                    video_url = match.group(1).replace('\\u002F', '/')
+                    break
         else:
-            print("Download failed.")
-            return None
-    except Exception as e:
-        print("Error downloading video:", e)
-        return None
+            return None, None
 
+        # Extract caption
+        title = soup.find("meta", property="og:description")
+        caption = title["content"] if title else "🔥 Awesome Car Reel!"
+        return video_url, caption
+    except Exception as e:
+        print("Error extracting video info:", e)
+        return None, None
+
+# --- Step 3: Download Video ---
+def download_video(video_url, filename):
+    try:
+        print(f"Downloading video: {video_url}")
+        response = requests.get(video_url)
+        with open(filename, "wb") as f:
+            f.write(response.content)
+        return True
+    except Exception as e:
+        print("Video download failed:", e)
+        return False
+
+# --- Step 4: Upload to Facebook ---
 def upload_to_facebook(video_path, caption):
-    fb_page_id = os.environ.get("61574921212526")
-    fb_page_token = os.environ.get("EAAySsQUbT7kBO4QrF6m5m4ZBwAXnTDw70GMuCsZCnhFuZARz6sSVmIXyRZByRQrMRaZCXZAHNglSMymV8qIC6W6e1CtJBfM4M3cnZBB16qj78bYPeGlIZCPhsPVcEPfbNnpZCGl0sP6wwi2xsooHrW11ozlLzwIrYvibU7SWZBcY6ds4juwsvzSOOjVhnW")
-    
-    url = f"https://graph.facebook.com/v18.0/{fb_page_id}/videos"
-    params = {
-        "access_token": fb_page_token,
-        "description": caption
+    url = f"https://graph-video.facebook.com/v18.0/{FB_PAGE_ID}/videos"
+    files = {'source': open(video_path, 'rb')}
+    data = {
+        'access_token': FB_PAGE_TOKEN,
+        'description': caption
     }
-    files = {"source": open(video_path, "rb")}
-    
-    response = requests.post(url, files=files, data=params)
-    print(response.json())
-    
-# Main execution
+    response = requests.post(url, files=files, data=data)
+    print("Facebook upload response:", response.text)
+    return response.status_code == 200
+
+# --- Main Flow ---
+def main():
+    keyword = random.choice(KEYWORDS)
+    pins = search_pinterest(keyword)
+    for pin in pins:
+        video_url, caption = extract_video_info(pin)
+        if video_url:
+            video_file = "video.mp4"
+            if download_video(video_url, video_file):
+                if upload_to_facebook(video_file, caption):
+                    print("✅ Successfully uploaded to Facebook!")
+                    break
+                else:
+                    print("❌ Facebook upload failed.")
+            else:
+                print("❌ Video download failed.")
+        else:
+            print("❌ Could not extract video URL.")
+
 if __name__ == "__main__":
-    pin_links = search_pinterest_links()
-    
-    for pin in pin_links:
-        print(f"Trying: {pin}")
-        caption = extract_caption_from_pin(pin)
-        video_path = download_video(pin)  # This needs to be updated with actual video extraction logic
-        
-        if video_path:
-            upload_to_facebook(video_path, caption)
+    main()
