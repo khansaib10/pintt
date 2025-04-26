@@ -1,16 +1,14 @@
 import os
 import random
-import re
 import requests
-from bs4 import BeautifulSoup
 
 # --- Configuration ---
 KEYWORDS = [
     "luxury cars",
     "cars lovers",
+    "bike reels",
     "car drifting",
-    "Harley Davidson",
-    "cars"
+    "Harley Davidson"
 ]
 
 FB_PAGE_ID = os.environ.get("61574921212526")
@@ -20,45 +18,24 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# --- Step 1: Search Pinterest for Pins ---
-def search_pinterest(keyword):
-    query = keyword.replace(" ", "%20")
-    url = f"https://www.pinterest.com/search/pins/?q={query}"
-    print(f"[+] Searching Pinterest for: {keyword} — {url}")
-    
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        pins = re.findall(r'"(https://www\.pinterest\.com/pin/\d+/)"', response.text)
-        pins = list(set(pins))  # remove duplicates
-        print(f"[+] Found {len(pins)} pins")
-        return pins
-    except Exception as e:
-        print("[-] Error searching Pinterest:", e)
-        return []
+# Hardcoded Pinterest video sources (example CDN links)
+PINTEREST_VIDEOS = [
+    "https://v.pinimg.com/videos/mc/720p/2e/35/6d/2e356d6612f1c53c3a5d6e7ababc7bb9.mp4",
+    "https://v.pinimg.com/videos/mc/720p/79/4d/91/794d9179389b8e5e55c1a84bdc22ce64.mp4",
+    "https://v.pinimg.com/videos/mc/720p/a1/62/b7/a162b7bc80c64e9a9e1d8e59ab22ce5b.mp4",
+    "https://v.pinimg.com/videos/mc/720p/f3/ea/31/f3ea3104f9625e7f0c8b55c948450fe6.mp4",
+    "https://v.pinimg.com/videos/mc/720p/6e/45/44/6e4544051f04be07e76bfcfa61e24a13.mp4"
+]
 
-# --- Step 2: Extract Video URL and Caption from Pin ---
-def extract_video_info(pin_url):
-    print(f"[>] Trying pin: {pin_url}")
-    try:
-        html = requests.get(pin_url, headers=HEADERS, timeout=15).text
-        soup = BeautifulSoup(html, 'html.parser')
+# --- Step 1: Pick a random video ---
+def pick_video():
+    video_url = random.choice(PINTEREST_VIDEOS)
+    caption = random.choice(KEYWORDS)
+    print(f"[+] Picked video: {video_url}")
+    print(f"[+] Caption: {caption}")
+    return video_url, caption
 
-        # Extract video URL
-        match = re.search(r'"video_list":\{.*?"url":"(https:\\/\\/v\.pinimg\.com.*?)"', html)
-        video_url = match.group(1).replace('\\u002F', '/').replace('\\', '') if match else None
-
-        # Extract caption
-        title = soup.find("meta", property="og:description")
-        caption = title["content"] if title else "🔥 Awesome Car Reel!"
-
-        print(f"[+] Video URL: {video_url}")
-        print(f"[+] Caption: {caption}")
-        return video_url, caption
-    except Exception as e:
-        print("[-] Error extracting video info:", e)
-        return None, None
-
-# --- Step 3: Download Video ---
+# --- Step 2: Download Video ---
 def download_video(url, filename="video.mp4"):
     try:
         response = requests.get(url, headers=HEADERS, timeout=30)
@@ -70,7 +47,7 @@ def download_video(url, filename="video.mp4"):
         print("[-] Error downloading video:", e)
         return None
 
-# --- Step 4: Upload to Facebook Page ---
+# --- Step 3: Upload to Facebook Page ---
 def upload_to_facebook(video_path, caption):
     print("[*] Uploading video to Facebook...")
     try:
@@ -88,18 +65,10 @@ def upload_to_facebook(video_path, caption):
 
 # --- Main Bot Logic ---
 def run_bot():
-    keyword = random.choice(KEYWORDS)
-    pins = search_pinterest(keyword)
-    
-    for pin in pins:
-        video_url, caption = extract_video_info(pin)
-        if video_url:
-            video_file = download_video(video_url)
-            if video_file:
-                upload_to_facebook(video_file, caption)
-                break  # Success
-    else:
-        print("[-] No valid videos found.")
+    video_url, caption = pick_video()
+    video_file = download_video(video_url)
+    if video_file:
+        upload_to_facebook(video_file, caption)
 
 if __name__ == "__main__":
     run_bot()
