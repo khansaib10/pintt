@@ -11,14 +11,13 @@ KEYWORDS = [
     "Harley Davidson"
 ]
 
-FB_PAGE_ID = os.environ.get("61574921212526")
-FB_PAGE_TOKEN = os.environ.get("EAAySsQUbT7kBO4QrF6m5m4ZBwAXnTDw70GMuCsZCnhFuZARz6sSVmIXyRZByRQrMRaZCXZAHNglSMymV8qIC6W6e1CtJBfM4M3cnZBB16qj78bYPeGlIZCPhsPVcEPfbNnpZCGl0sP6wwi2xsooHrW11ozlLzwIrYvibU7SWZBcY6ds4juwsvzSOOjVhnW")
+FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
+FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# Hardcoded Pinterest video sources (example CDN links)
 PINTEREST_VIDEOS = [
     "https://v.pinimg.com/videos/mc/720p/2e/35/6d/2e356d6612f1c53c3a5d6e7ababc7bb9.mp4",
     "https://v.pinimg.com/videos/mc/720p/79/4d/91/794d9179389b8e5e55c1a84bdc22ce64.mp4",
@@ -49,6 +48,10 @@ def download_video(url, filename="video.mp4"):
 
 # --- Step 3: Upload to Facebook Page ---
 def upload_to_facebook(video_path, caption):
+    if not FB_PAGE_ID or not FB_PAGE_TOKEN:
+        print("[-] ERROR: FB_PAGE_ID or FB_PAGE_TOKEN is missing!")
+        return
+    
     print("[*] Uploading video to Facebook...")
     try:
         url = f"https://graph-video.facebook.com/v18.0/{FB_PAGE_ID}/videos"
