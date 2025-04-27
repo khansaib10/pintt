@@ -21,11 +21,8 @@ HEADERS = {
 
 # Hardcoded Pinterest video sources (you can replace these later)
 PINTEREST_VIDEOS = [
-    "https://v.pinimg.com/videos/mc/720p/2e/35/6d/2e356d6612f1c53c3a5d6e7ababc7bb9.mp4",
-    "https://v.pinimg.com/videos/mc/720p/79/4d/91/794d9179389b8e5e55c1a84bdc22ce64.mp4",
-    "https://v.pinimg.com/videos/mc/720p/a1/62/b7/a162b7bc80c64e9a9e1d8e59ab22ce5b.mp4",
-    "https://v.pinimg.com/videos/mc/720p/f3/ea/31/f3ea3104f9625e7f0c8b55c948450fe6.mp4",
-    "https://v.pinimg.com/videos/mc/720p/6e/45/44/6e4544051f04be07e76bfcfa61e24a13.mp4"
+    "https://pin.it/3Ez985TeB",
+   
 ]
 
 # --- Functions ---
