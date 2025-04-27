@@ -1,6 +1,7 @@
 import os
 import random
 import requests
+import re
 from bs4 import BeautifulSoup
 
 # --- Configuration ---
@@ -12,107 +13,112 @@ KEYWORDS = [
     "Harley Davidson"
 ]
 
-# Read from GitHub Secrets (environment variables)
-FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
-FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
+FB_PAGE_ID = os.getenv("FB_PAGE_ID")
+FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# --- Function to check and get the actual media from Pinterest ---
+# Pinterest links (shortlinks or full pin URLs)
+PINTEREST_LINKS = [
+    "https://pin.it/3Ez985TeB",
+    # add more links here
+]
+
+# --- Helper: Resolve media URL ---
 def get_media_url(url):
+    """
+    Resolve a Pinterest URL to a direct media URL (video or image).
+    """
     try:
-        # Fetch the page content
-        response = requests.get(url, headers=HEADERS)
-        response.raise_for_status()  # Raise an error for bad status codes
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        html = resp.text
 
-        # Parse the page content
-        soup = BeautifulSoup(response.text, "html.parser")
+        # 1) Try to extract a direct video URL via regex
+        video_match = re.search(r"https://v\.pinimg\.com/videos/[^"]+?\.mp4", html)
+        if video_match:
+            video_url = video_match.group(0)
+            print(f"[+] Found video URL: {video_url}")
+            return video_url, 'video'
 
-        # Check if the page contains a video URL
-        video_url = soup.find("meta", property="og:video")
-        if video_url:
-            print(f"[+] Found video: {video_url['content']}")
-            return video_url["content"]
+        # 2) Fallback: check og:video meta
+        soup = BeautifulSoup(html, 'html.parser')
+        meta_video = soup.find('meta', property='og:video')
+        if meta_video and meta_video.get('content'):
+            print(f"[+] Found og:video: {meta_video['content']}")
+            return meta_video['content'], 'video'
 
-        # Otherwise, check for image URL
-        image_url = soup.find("meta", property="og:image")
-        if image_url:
-            print(f"[+] Found image: {image_url['content']}")
-            return image_url["content"]
+        # 3) Fallback: check og:image meta
+        meta_image = soup.find('meta', property='og:image')
+        if meta_image and meta_image.get('content'):
+            print(f"[+] Found og:image: {meta_image['content']}")
+            return meta_image['content'], 'image'
 
-        print("[-] No video or image found on the page.")
-        return None
+        print("[-] No media URL found on the Pinterest page.")
+        return None, None
     except Exception as e:
-        print(f"[-] Error fetching media from Pinterest: {e}")
-        return None
+        print(f"[-] Error resolving Pinterest URL: {e}")
+        return None, None
 
-# --- Download media (video or image) ---
-def download_media(url, filename="media"):
+# --- Download media ---
+def download_media(url, kind):
+    """
+    Download media from URL, save with correct extension.
+    """
     try:
-        response = requests.get(url, headers=HEADERS, timeout=30)
-        if response.status_code == 200:
-            # Determine file extension
-            file_extension = ".mp4" if url.endswith(".mp4") else ".jpg"
-            filename = filename + file_extension
-            
-            with open(filename, 'wb') as f:
-                f.write(response.content)
-            print(f"[+] Downloaded media to {filename}")
-            return filename
-        else:
-            print(f"[-] Failed to download media: {response.status_code}")
-            return None
+        resp = requests.get(url, headers=HEADERS, stream=True, timeout=30)
+        resp.raise_for_status()
+        ext = '.mp4' if kind == 'video' else '.jpg'
+        fname = f"temp{ext}"
+        with open(fname, 'wb') as f:
+            for chunk in resp.iter_content(8192):
+                f.write(chunk)
+        size = os.path.getsize(fname)
+        print(f"[+] Downloaded {kind} ({size} bytes) to {fname}")
+        return fname
     except Exception as e:
         print(f"[-] Error downloading media: {e}")
         return None
 
-# --- Upload media to Facebook ---
-def upload_to_facebook(media_path, caption, is_video=False):
+# --- Upload to Facebook ---
+def upload_to_facebook(path, kind, caption):
+    """
+    Upload downloaded media to Facebook Page.
+    """
+    endpoint = (
+        f"https://graph-video.facebook.com/v18.0/{FB_PAGE_ID}/videos" if kind == 'video'
+        else f"https://graph.facebook.com/v18.0/{FB_PAGE_ID}/photos"
+    )
+    data = {
+        'access_token': FB_PAGE_TOKEN,
+        'description' if kind == 'video' else 'message': caption
+    }
+    files = {'source': open(path, 'rb')}
+    print(f"[*] Uploading {kind} to Facebook...")
     try:
-        print("[*] Uploading media to Facebook...")
-
-        url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/videos" if is_video else f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
-        files = {'source': open(media_path, 'rb')}
-        data = {
-            'access_token': FB_PAGE_TOKEN,
-            'description': caption
-        }
-
-        response = requests.post(url, files=files, data=data)
-        print(f"[+] Facebook upload response: {response.status_code}")
-        print(response.json())
+        resp = requests.post(endpoint, files=files, data=data)
+        print(f"[+] Facebook response: {resp.status_code}")
+        print(resp.json())
     except Exception as e:
         print(f"[-] Error uploading to Facebook: {e}")
 
-# --- Main Bot Logic ---
-def run_bot():
-    # Hardcoded Pinterest URL for testing (this can be updated or fetched dynamically)
-    pinterest_link = "https://pin.it/3Ez985TeB"  # Use any Pinterest link for testing
-    
-    # Get the actual media (either video or image)
-    media_url = get_media_url(pinterest_link)
-    if media_url:
-        # Pick random caption
-        caption = random.choice(KEYWORDS)
-
-        # Download media
-        media_file = download_media(media_url)
-
-        if media_file:
-            # Check if the media is a video or image by its extension
-            is_video = media_file.endswith(".mp4")
-            
-            # Upload to Facebook (upload video or photo depending on file type)
-            upload_to_facebook(media_file, caption, is_video)
-
-            # Clean up downloaded file
-            os.remove(media_file)
-        else:
-            print("[-] No media file downloaded.")
+# --- Main Logic ---
+def main():
+    link = random.choice(PINTEREST_LINKS)
+    print(f"[+] Picked link: {link}")
+    media_url, kind = get_media_url(link)
+    if not media_url:
+        print("[-] Skipping: no media URL found.")
+        return
+    caption = random.choice(KEYWORDS)
+    media_file = download_media(media_url, kind)
+    if media_file:
+        upload_to_facebook(media_file, kind, caption)
+        os.remove(media_file)
     else:
-        print("[-] No valid media found.")
+        print("[-] Skipping upload due to download failure.")
 
-if __name__ == "__main__":
-    run_bot()
+if __name__ == '__main__':
+    main()
