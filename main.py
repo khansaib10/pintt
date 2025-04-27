@@ -9,7 +9,7 @@ FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
 
 # Your Pinterest links (could be video or image, no extension)
 PINTEREST_LINKS = [
-    "https://pin.it/3Ez985TeB",  # example shortlink
+    "https://www.pexels.com/video/adorable-baby-chick-in-gentle-hand-outdoors-31721674/",  # example shortlink
     # add more links here
 ]
 
