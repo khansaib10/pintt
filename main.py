@@ -1,127 +1,132 @@
+# main.py
+
 import os
 import random
+import asyncio
 import requests
-import re
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
 # --- Configuration ---
 KEYWORDS = [
     "luxury cars",
-    "cars lovers",
     "bike reels",
+    "Harley Davidson",
     "car drifting",
-    "Harley Davidson"
+    "superbike girls",
 ]
 
-# Read from environment (GitHub Secrets)
-FB_PAGE_ID    = os.getenv("FB_PAGE_ID")
-FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
+FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
+FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# Your Pinterest links (shortlinks or full pin URLs)
-PINTEREST_LINKS = [
-    "https://pin.it/3Ez985TeB",
-    # add more links here if you want
-]
+# --- Functions ---
 
-def get_media_url(page_url):
-    """
-    Resolve a Pinterest URL (pin page or shortlink) to a direct media URL.
-    Returns (media_url, kind) where kind is 'video' or 'image'.
-    """
+async def search_pinterest(keyword):
+    print(f"[*] Searching Pinterest for: {keyword}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+
+        search_url = f"https://www.pinterest.com/search/pins/?q={keyword.replace(' ', '%20')}&rs=typed"
+        await page.goto(search_url)
+        await page.wait_for_timeout(3000)
+
+        content = await page.content()
+        await browser.close()
+        
+        soup = BeautifulSoup(content, "html.parser")
+        pins = soup.find_all("a", href=True)
+
+        video_pins = []
+        for pin in pins:
+            href = pin['href']
+            if "/pin/" in href and href not in video_pins:
+                video_pins.append("https://www.pinterest.com" + href)
+        
+        print(f"[+] Found {len(video_pins)} pins")
+        return video_pins
+
+async def extract_video_url(pin_url):
+    print(f"[*] Extracting video from pin: {pin_url}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(pin_url)
+        await page.wait_for_timeout(3000)
+
+        content = await page.content()
+        await browser.close()
+
+        soup = BeautifulSoup(content, "html.parser")
+        video_tag = soup.find("video")
+        if video_tag:
+            source = video_tag.find("source")
+            if source and source['src']:
+                print(f"[+] Found video link: {source['src']}")
+                return source['src']
+    print("[-] No video found.")
+    return None
+
+def download_video(video_url, filename="video.mp4"):
+    print(f"[*] Downloading video...")
     try:
-        resp = requests.get(page_url, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-        html = resp.text
-
-        # 1) Try to extract a Pinterest CDN video link via regex
-        video_match = re.search(r'https://v\.pinimg\.com/videos/[^"]+?\.mp4', html)
-        if video_match:
-            video_url = video_match.group(0)
-            print(f"[+] Found video URL: {video_url}")
-            return video_url, 'video'
-
-        # 2) Fallback to OG video meta tag
-        soup = BeautifulSoup(html, 'html.parser')
-        meta_video = soup.find('meta', property='og:video')
-        if meta_video and meta_video.get('content'):
-            print(f"[+] Found og:video: {meta_video['content']}")
-            return meta_video['content'], 'video'
-
-        # 3) Fallback to OG image meta tag
-        meta_image = soup.find('meta', property='og:image')
-        if meta_image and meta_image.get('content'):
-            print(f"[+] Found og:image: {meta_image['content']}")
-            return meta_image['content'], 'image'
-
-        print("[-] No media URL found on the Pinterest page.")
+        response = requests.get(video_url, headers=HEADERS, timeout=30)
+        if response.status_code == 200:
+            with open(filename, "wb") as f:
+                f.write(response.content)
+            print(f"[+] Saved video to {filename}")
+            return filename
+        else:
+            print("[-] Failed to download video:", response.status_code)
+            return None
     except Exception as e:
-        print(f"[-] Error resolving Pinterest URL: {e}")
-    return None, None
-
-def download_media(media_url, kind):
-    """
-    Download the media (video or image) and save it with the correct extension.
-    Returns the local filename or None on error.
-    """
-    try:
-        resp = requests.get(media_url, headers=HEADERS, stream=True, timeout=30)
-        resp.raise_for_status()
-
-        ext = '.mp4' if kind == 'video' else '.jpg'
-        filename = f"temp{ext}"
-        with open(filename, 'wb') as f:
-            for chunk in resp.iter_content(8192):
-                f.write(chunk)
-
-        size = os.path.getsize(filename)
-        print(f"[+] Downloaded {kind} ({size} bytes) to {filename}")
-        return filename
-    except Exception as e:
-        print(f"[-] Error downloading media: {e}")
+        print("[-] Exception downloading video:", e)
         return None
 
-def upload_to_facebook(filepath, kind, caption):
-    """
-    Upload the downloaded file to Facebook Page.
-    Uses the /videos endpoint for videos, /photos for images.
-    """
-    if kind == 'video':
-        endpoint = f"https://graph-video.facebook.com/v18.0/{FB_PAGE_ID}/videos"
-        data = {'access_token': FB_PAGE_TOKEN, 'description': caption}
-    else:
-        endpoint = f"https://graph.facebook.com/v18.0/{FB_PAGE_ID}/photos"
-        data = {'access_token': FB_PAGE_TOKEN, 'message': caption}
-
-    files = {'source': open(filepath, 'rb')}
-    print(f"[*] Uploading {kind} to Facebook...")
+def upload_to_facebook(video_path, caption):
+    print("[*] Uploading video to Facebook...")
     try:
-        resp = requests.post(endpoint, files=files, data=data)
-        print(f"[+] Facebook response: {resp.status_code}")
-        print(resp.json())
+        url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/videos"
+        files = {'source': open(video_path, 'rb')}
+        data = {
+            'access_token': FB_PAGE_TOKEN,
+            'description': caption
+        }
+        response = requests.post(url, files=files, data=data)
+        print(f"[+] Facebook upload response: {response.status_code}")
+        print(response.json())
     except Exception as e:
-        print(f"[-] Error uploading to Facebook: {e}")
+        print("[-] Error uploading to Facebook:", e)
 
-def main():
-    link = random.choice(PINTEREST_LINKS)
-    print(f"[+] Picked link: {link}")
+async def run_bot():
+    keyword = random.choice(KEYWORDS)
+    pins = await search_pinterest(keyword)
 
-    media_url, kind = get_media_url(link)
-    if not media_url:
-        print("[-] Skipping: no media URL found.")
-        return
+    for pin_url in pins:
+        video_url = await extract_video_url(pin_url)
+        if video_url:
+            video_file = download_video(video_url)
+            if video_file:
+                file_size = os.path.getsize(video_file)
+                if file_size > 100 * 1024:  # Minimum 100 KB
+                    upload_to_facebook(video_file, keyword)
+                    os.remove(video_file)
+                    return  # success, stop here
+                else:
+                    print("[-] Video too small, trying next...")
+                    os.remove(video_file)
+            else:
+                print("[-] Could not download video, trying next...")
+        else:
+            print("[-] No video found, trying next pin...")
 
-    caption = random.choice(KEYWORDS)
-    media_file = download_media(media_url, kind)
-    if not media_file:
-        print("[-] Skipping upload due to download failure.")
-        return
+    print("[-] No valid videos found for this keyword.")
 
-    upload_to_facebook(media_file, kind, caption)
-    os.remove(media_file)
+# --- Main ---
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(run_bot())
