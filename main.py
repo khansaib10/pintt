@@ -2,6 +2,7 @@ import os
 import random
 import requests
 from playwright.sync_api import sync_playwright
+import re
 
 # --- Configuration ---
 KEYWORDS = [
@@ -36,15 +37,16 @@ def get_video_url_from_pinterest(pin_url):
             page.goto(pin_url)
             page.wait_for_selector('video')  # Wait for the video to be loaded
 
-            # Extract the video URL (get video element source URL)
-            video_element = page.query_selector('video')
-            if video_element:
-                video_url = video_element.get_attribute('src')
+            # Extract video URLs from the page's JavaScript code
+            page_content = page.content()
+            video_urls = re.findall(r'https://[^\s]+\.mp4', page_content)
+            if video_urls:
+                video_url = video_urls[0]
                 print(f"[+] Found video URL: {video_url}")
                 browser.close()
                 return video_url
             else:
-                print("[-] No video found on this pin.")
+                print("[-] No valid video found on this pin.")
                 browser.close()
                 return None
     except Exception as e:
