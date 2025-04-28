@@ -1,21 +1,18 @@
-# main.py
-
 import os
 import random
-import asyncio
 import requests
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 # --- Configuration ---
 KEYWORDS = [
     "luxury cars",
+    "cars lovers",
     "bike reels",
-    "Harley Davidson",
     "car drifting",
-    "superbike girls",
+    "Harley Davidson"
 ]
 
+# Read from GitHub Secrets (environment variables)
 FB_PAGE_ID = os.environ.get("FB_PAGE_ID")
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN")
 
@@ -25,108 +22,89 @@ HEADERS = {
 
 # --- Functions ---
 
-async def search_pinterest(keyword):
-    print(f"[*] Searching Pinterest for: {keyword}")
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+def pick_video():
+    # For now, pick a random keyword
+    keyword = random.choice(KEYWORDS)
+    print(f"[+] Searching Pinterest for: {keyword}")
+    return keyword
 
-        search_url = f"https://www.pinterest.com/search/pins/?q={keyword.replace(' ', '%20')}&rs=typed"
-        await page.goto(search_url)
-        await page.wait_for_timeout(3000)
-
-        content = await page.content()
-        await browser.close()
-        
-        soup = BeautifulSoup(content, "html.parser")
-        pins = soup.find_all("a", href=True)
-
-        video_pins = []
-        for pin in pins:
-            href = pin['href']
-            if "/pin/" in href and href not in video_pins:
-                video_pins.append("https://www.pinterest.com" + href)
-        
-        print(f"[+] Found {len(video_pins)} pins")
-        return video_pins
-
-async def extract_video_url(pin_url):
-    print(f"[*] Extracting video from pin: {pin_url}")
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto(pin_url)
-        await page.wait_for_timeout(3000)
-
-        content = await page.content()
-        await browser.close()
-
-        soup = BeautifulSoup(content, "html.parser")
-        video_tag = soup.find("video")
-        if video_tag:
-            source = video_tag.find("source")
-            if source and source['src']:
-                print(f"[+] Found video link: {source['src']}")
-                return source['src']
-    print("[-] No video found.")
-    return None
-
-def download_video(video_url, filename="video.mp4"):
-    print(f"[*] Downloading video...")
+def get_video_url_from_pinterest(pin_url):
     try:
-        response = requests.get(video_url, headers=HEADERS, timeout=30)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(pin_url)
+            page.wait_for_selector('video')  # Wait for the video to be loaded
+
+            # Extract the video URL (get video element source URL)
+            video_element = page.query_selector('video')
+            if video_element:
+                video_url = video_element.get_attribute('src')
+                print(f"[+] Found video URL: {video_url}")
+                browser.close()
+                return video_url
+            else:
+                print("[-] No video found on this pin.")
+                browser.close()
+                return None
+    except Exception as e:
+        print(f"[-] Error extracting video from Pinterest: {e}")
+        return None
+
+def download_video(url, filename="video.mp4"):
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=30)
         if response.status_code == 200:
-            with open(filename, "wb") as f:
+            with open(filename, 'wb') as f:
                 f.write(response.content)
-            print(f"[+] Saved video to {filename}")
+            print(f"[+] Downloaded video to {filename}")
             return filename
         else:
             print("[-] Failed to download video:", response.status_code)
             return None
     except Exception as e:
-        print("[-] Exception downloading video:", e)
+        print("[-] Error downloading video:", e)
         return None
 
 def upload_to_facebook(video_path, caption):
-    print("[*] Uploading video to Facebook...")
     try:
+        print("[*] Uploading video to Facebook...")
+
         url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/videos"
         files = {'source': open(video_path, 'rb')}
         data = {
             'access_token': FB_PAGE_TOKEN,
             'description': caption
         }
+
         response = requests.post(url, files=files, data=data)
         print(f"[+] Facebook upload response: {response.status_code}")
         print(response.json())
     except Exception as e:
         print("[-] Error uploading to Facebook:", e)
 
-async def run_bot():
-    keyword = random.choice(KEYWORDS)
-    pins = await search_pinterest(keyword)
+def run_bot():
+    keyword = pick_video()
 
-    for pin_url in pins:
-        video_url = await extract_video_url(pin_url)
-        if video_url:
-            video_file = download_video(video_url)
-            if video_file:
-                file_size = os.path.getsize(video_file)
-                if file_size > 100 * 1024:  # Minimum 100 KB
-                    upload_to_facebook(video_file, keyword)
-                    os.remove(video_file)
-                    return  # success, stop here
-                else:
-                    print("[-] Video too small, trying next...")
-                    os.remove(video_file)
+    # Searching Pinterest for the first result (you can extend this later for more random pins)
+    pin_url = f"https://www.pinterest.com/search/pins/?q={keyword}"
+    
+    video_url = get_video_url_from_pinterest(pin_url)
+    
+    if video_url:
+        video_file = download_video(video_url)
+
+        if video_file:
+            file_size = os.path.getsize(video_file)
+            if file_size > 100 * 1024:  # Minimum 100 KB file size check
+                upload_to_facebook(video_file, keyword)
             else:
-                print("[-] Could not download video, trying next...")
+                print("[-] Video too small, skipping upload.")
+            os.remove(video_file)
         else:
-            print("[-] No video found, trying next pin...")
-
-    print("[-] No valid videos found for this keyword.")
-
-# --- Main ---
+            print("[-] No video file to upload.")
+    else:
+        print("[-] No valid video found, skipping this pin.")
 
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    run_bot()
