@@ -1,30 +1,32 @@
-name: Pinterest to Facebook Bot
+name: Video Upload Bot
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"  # every 1 hour
-  workflow_dispatch:  # manual run option
+    - cron: '0 * * * *'
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v2
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v2
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install playwright
+          playwright install
           pip install -r requirements.txt
-          playwright install chromium
 
-      - name: Run bot
+      - name: Run the video upload script
+        run: |
+          python main.py
         env:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-        run: |
-          python main.py
